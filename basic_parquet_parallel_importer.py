@@ -4,7 +4,7 @@
 # how to deal with Table structure. Ask presales channel if there is a common structure for file import
 # excluding things that have been imported.
 # publish basic version, then later on add logic (logging, etc.)
-# only issue with possibly larger loads is merge. As it happens for each process. 
+# only issue with possibly larger loads is merge. As it happens for each process.
 
 
 from pathlib import Path
@@ -21,25 +21,14 @@ from concurrent.futures import ProcessPoolExecutor
 from time import time
 import hashlib
 
-#from joblib import Parallel, delayed
 
-
-
-######### USER INPUT !!!!!!!!
-#create starting path
-#path = input('Enter the PATH of the root directory in which you would like to look for parquet files:')
-# this should be the parent directory of the dated folders
+######### USER INPUT #########
+# this should be the parent directory in which you want to recursively search its subdirectories for parquet files
 path = Path('/Users/zaad/Documents/GitHub/parquet_parallell_importer_py/')
-#path = Path(path)
+schema_name = 'RETAIL_2020'
+exasol_db_config_path = '/Users/zaad/Documents/GitHub/parquet_parallell_importer_py/.pyexasol.ini'
+######### END USER INPUT #########
 
-######### USER INPUT !!!!!!!!
-# days back you want to load
-#num_days_back = input('How many days back would you like to load?:')
-num_days_back = 90
-num_days_back = int(num_days_back)
-
-#calculate which date to start loading data
-start_date = (date.today() - timedelta(days=num_days_back))
 
 #create empty list
 file_paths = []
@@ -50,30 +39,24 @@ def find_files(input_path):
         if item.suffix in ['.parquet']:
             #parquet_file = Path.resolve(item)
             path = os.path.normpath(item)
-            split = str(item).split(os.sep)
+            file_paths.append(path)
 
-            date_raw = re.search('\d{8}', split[-4])
-            date = datetime.strptime(date_raw.group(), '%Y%m%d').date()
+    print("Files have been loaded")
+    print('There are ', len(file_paths), 'records to load!')
 
-            if date >= start_date:
-                file_paths.append(path)
-
-    print("FILES LOADED!")
-    print('There are ', len(file_paths), 'records to load from', start_date)
-
-
+#this function executes for every file found in find_files()
 def create_target_schemas(files):
     for file in files:
         path = os.path.normpath(file)
         split = path.split(os.sep)
-        schema_name = split[-3].upper()
-        table_name = split[-2].upper()
+        #schema_name = split[-3].upper() #Schema name is the grand parent directory of the parquet file
+        table_name = split[-2].upper() #table name is the parent directory of the parquet file
 
         #create dataframe from parquet file
         schema = pq.read_schema(file, memory_map=True)
         schema = pd.DataFrame(({"column": name, "pa_dtype": str(pa_dtype)}
                                for name, pa_dtype in zip(schema.names, schema.types)))
-        
+
         #Ensures columns in case the parquet file has an empty dataframe.
         schema = schema.reindex(
             columns=["column", "pa_dtype"], fill_value=pd.NA)
@@ -88,10 +71,10 @@ def create_target_schemas(files):
             table_name + '(' + ','.join(ddl) + ')'
         ddl_stmt = str(ddl_stmt).replace("decimal128", "DECIMAL").replace(
             "bool", "VARCHAR(20)").replace("date32[day]", "DATE").replace("timestamp[ns]", "TIMESTAMP").replace("string", "VARCHAR(2000)")
-        
+
         #connect to Exasol database!
         C = pyexasol.connect_local_config(
-            config_path=r'/Users/zaad/Documents/GitHub/parquet_parallell_importer_py/.pyexasol.ini', config_section=r'my_exasol')
+            config_path=exasol_db_config_path, config_section=r'my_exasol')
         C.execute('CREATE SCHEMA IF NOT EXISTS ' + schema_name)
         C.execute(ddl_stmt)
 
@@ -108,7 +91,7 @@ def import_files(file):
     hash_object = hashlib.md5(file.encode())
     md5_file_name = hash_object.hexdigest().upper()
     #schema_name = split[-3].upper()
-    schema_name = 'RETAIL_2020'
+    #schema_name = 'RETAIL_2020'
     target_table_name = split[-2].upper()
     temp_table_suffix = split[-4].upper()
     temp_table_name = target_table_name + '_' + temp_table_suffix+'_'+md5_file_name
@@ -123,13 +106,14 @@ def import_files(file):
     #connect to Exasol database!
     #C = pyexasol.connect_local_config(config_path=r'/Users/zaad/Jupyter Notebooks/.pyexasol.ini', config_section=r'my_exasol')
     C = pyexasol.connect_local_config(
-        config_path=r'/Users/zaad/Documents/GitHub/parquet_parallell_importer_py/.pyexasol.ini', config_section=r'my_exasol')
+        config_path=exasol_db_config_path, config_section=r'my_exasol')
     # Execute DDL > CREATE OR REPLACE TABLE
     #C.execute('CREATE SCHEMA IF NOT EXISTS ' + schema_name)
     C.execute(ddl)
 
     # Import from pandas DataFrame into Exasol table
     C.import_from_pandas(df, (schema_name, temp_table_name))
+    stmt1 = C.last_statement()
 
     #get the columns from the staging tables to generate the MERGE statement
     stmt = C.execute(
@@ -148,10 +132,9 @@ def import_files(file):
               + " WHEN NOT MATCHED THEN INSERT VALUES (" + merge_columns + ")")
     C.execute("DROP TABLE "+schema_name+"."+temp_table_name)
     # Output
-    stmt = C.last_statement()
-    print(f'IMPORTED {stmt.rowcount()} rows in {stmt.execution_time}s')
+    stmt2 = C.last_statement()
+    print(f'Imported and merged {stmt1.rowcount()} rows into {schema_name}.{target_table_name} in {stmt1.execution_time + stmt2.execution_time}s ...')
     C.close()
-    #print('COMPLETE!')
 
 
 def main():
