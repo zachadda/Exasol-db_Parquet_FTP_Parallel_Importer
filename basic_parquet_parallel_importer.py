@@ -79,8 +79,9 @@ def create_target_schemas(files):
             config_path=exasol_db_config_path, config_section=r'my_exasol')
         C.execute('CREATE SCHEMA IF NOT EXISTS ' + schema_name)
         C.execute(ddl_stmt)
-
-    print('***CORE TARGET SCHEMA & TABLES CREATED!***')
+    stmt = C.execute("select table_name from exa_all_tables where table_schema='"+schema_name+"'")
+    print(
+        f'***CORE TARGET SCHEMA {schema_name} & TABLE {stmt.fetchcol()} CREATED!***')
 
 
 def import_files(file):
@@ -131,11 +132,13 @@ def import_files(file):
     C.execute("DROP TABLE "+schema_name+"."+temp_table_name)
     # Output
     stmt2 = C.last_statement()
-    print(f'Imported and merged {stmt1.rowcount()} rows into {schema_name}.{target_table_name} in {stmt1.execution_time + stmt2.execution_time}s ...')
+    print(f'Imported and merged {"{:,}".format(stmt1.rowcount())} rows into {schema_name}.{target_table_name} in {round(stmt1.execution_time+stmt2.execution_time,2)}s ...')
     C.close()
 
 
 def main():
+    find_files(path)
+    create_target_schemas(file_paths)
     start = time()
     cpuCount = int(os.cpu_count()/4)
     pool = ProcessPoolExecutor(max_workers=cpuCount)
@@ -145,6 +148,4 @@ def main():
 
 
 if __name__ == '__main__':
-    find_files(path)
-    create_target_schemas(file_paths)
     main()
