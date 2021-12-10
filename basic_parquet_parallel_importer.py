@@ -24,9 +24,12 @@ import hashlib
 
 ######### USER INPUT #########
 # this should be the parent directory in which you want to recursively search its subdirectories for parquet files
-path = Path('/Users/zaad/Documents/GitHub/parquet_parallell_importer_py/')
+path = Path('') #leave blank to search current directory of python file
+# fully qualify path if the file resides in a directory different than the python script
+exasol_db_config_path = '.pyexasol.ini'
+
 schema_name = 'RETAIL_2020'
-exasol_db_config_path = '/Users/zaad/Documents/GitHub/parquet_parallell_importer_py/.pyexasol.ini'
+
 ######### END USER INPUT #########
 
 
@@ -37,7 +40,6 @@ file_paths = []
 def find_files(input_path):
     for item in input_path.glob('**/*'):
         if item.suffix in ['.parquet']:
-            #parquet_file = Path.resolve(item)
             path = os.path.normpath(item)
             file_paths.append(path)
 
@@ -82,16 +84,13 @@ def create_target_schemas(files):
 
 
 def import_files(file):
-    #for file in files:
 
     #define inputs from file
     path = os.path.normpath(file)
     split = path.split(os.sep)
-    #file_name = Path(file).stem
     hash_object = hashlib.md5(file.encode())
     md5_file_name = hash_object.hexdigest().upper()
-    #schema_name = split[-3].upper()
-    #schema_name = 'RETAIL_2020'
+
     target_table_name = split[-2].upper()
     temp_table_suffix = split[-4].upper()
     temp_table_name = target_table_name + '_' + temp_table_suffix+'_'+md5_file_name
@@ -104,7 +103,6 @@ def import_files(file):
         "INTEGER", "VARCHAR(2000000)").replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS")
 
     #connect to Exasol database!
-    #C = pyexasol.connect_local_config(config_path=r'/Users/zaad/Jupyter Notebooks/.pyexasol.ini', config_section=r'my_exasol')
     C = pyexasol.connect_local_config(
         config_path=exasol_db_config_path, config_section=r'my_exasol')
     # Execute DDL > CREATE OR REPLACE TABLE
